@@ -1,6 +1,8 @@
 package com.comutel.backend.controller;
 
+import com.comutel.backend.dto.TicketDTO;
 import com.comutel.backend.model.Comentario;
+import com.comutel.backend.model.HistorialTicket;
 import com.comutel.backend.model.Ticket;
 import com.comutel.backend.service.TicketService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,25 +21,25 @@ public class TicketController {
 
     // 1. Crear
     @PostMapping
-    public Ticket crearTicket(@RequestBody Ticket ticket) {
+    public TicketDTO crearTicket(@RequestBody Ticket ticket) {
         return ticketService.crearTicket(ticket);
     }
 
     // 2. Ver Todos
     @GetMapping
-    public List<Ticket> obtenerTodos() {
+    public List<TicketDTO> obtenerTodos() {
         return ticketService.obtenerTodos();
     }
 
     // 3. Atender (Asignar técnico)
     @PutMapping("/{id}/atender/{tecnicoId}")
-    public Ticket atenderTicket(@PathVariable Long id, @PathVariable Long tecnicoId) {
+    public TicketDTO atenderTicket(@PathVariable Long id, @PathVariable Long tecnicoId) {
         return ticketService.atenderTicket(id, tecnicoId);
     }
 
     // 4. Finalizar
     @PutMapping("/{id}/finalizar")
-    public Ticket finalizarTicket(@PathVariable Long id) {
+    public TicketDTO finalizarTicket(@PathVariable Long id) {
         return ticketService.finalizarTicket(id);
     }
 
@@ -57,5 +59,16 @@ public class TicketController {
     @PostMapping("/{id}/comentarios")
     public Comentario agregarComentario(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
         return ticketService.agregarComentario(id, payload);
+    }
+    @PutMapping("/{id}/asignar-grupo/{grupoId}")
+    public TicketDTO asignarGrupo(
+            @PathVariable Long id,
+            @PathVariable Long grupoId,
+            @RequestParam Long actorId) { // Enviamos quién lo hizo como parámetro
+        return ticketService.asignarGrupo(id, grupoId, actorId);
+    }
+    @GetMapping("/{id}/historial")
+    public List<HistorialTicket> obtenerHistorial(@PathVariable Long id) {
+        return ticketService.obtenerHistorial(id);
     }
 }

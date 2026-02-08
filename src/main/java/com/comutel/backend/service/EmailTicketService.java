@@ -10,6 +10,7 @@ import jakarta.mail.search.FlagTerm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import com.comutel.backend.model.Prioridad;
 
 import java.util.Properties;
 
@@ -33,6 +34,11 @@ public class EmailTicketService {
 
         Properties props = new Properties();
         props.put("mail.store.protocol", "imaps");
+        props.put("mail.imap.host", "imap.gmail.com");
+        props.put("mail.imap.port", "993");
+        props.put("mail.imap.ssl.enable", "true"); // <--- ESTA ES VITAL
+        props.put("mail.imap.starttls.enable", "true");
+
 
         try {
             Session session = Session.getDefaultInstance(props, null);
@@ -96,11 +102,16 @@ public class EmailTicketService {
         Ticket ticket = new Ticket();
         ticket.setTitulo(titulo);
         ticket.setDescripcion(descripcionLimpia);
-        ticket.setPrioridad(Ticket.Prioridad.MEDIA);
 
-        ticket.setEstado(Ticket.Estado.NUEVO); // Estado inicial
-        ticket.setUsuario(usuarioCliente);     // El dueño es el que envió el correo
-        ticket.setTecnico(null);               // Aún nadie lo atiende
+        // Configuración de Prioridad
+        ticket.setPrioridad(Prioridad.MEDIA);
+
+        // 🚨 AGREGA ESTA LÍNEA (Vital para el SLA)
+        ticket.calcularVencimiento();
+
+        ticket.setEstado(Ticket.Estado.NUEVO);
+        ticket.setUsuario(usuarioCliente);
+        ticket.setTecnico(null);
 
         ticketRepository.save(ticket);
         System.out.println("🎫 Ticket creado exitosamente para: " + usuarioCliente.getNombre());

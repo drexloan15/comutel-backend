@@ -1,41 +1,79 @@
 package com.comutel.backend.controller;
 
 import com.comutel.backend.model.Usuario;
-import com.comutel.backend.repository.UsuarioRepository;
+import com.comutel.backend.service.UsuarioService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
 
-@RestController // 1. Dice: "Esta clase responde a peticiones web y devuelve datos (JSON)"
-@RequestMapping("/api/usuarios") // 2. La dirección base será: http://localhost:8080/api/usuarios
+@RestController
+@RequestMapping("/api/usuarios")
 @CrossOrigin(origins = "http://localhost:5173")
 public class UsuarioController {
 
-    @Autowired // 3. Inyección de Dependencias: Spring nos "regala" el repositorio listo para usar.
-    private UsuarioRepository usuarioRepository;
+    @Autowired
+    private UsuarioService usuarioService;
 
-    // Obtener todos los usuarios
-    @GetMapping // 4. Responde a peticiones GET (cuando escribes la URL en el navegador)
-    public List<Usuario> obtenerTodosLosUsuarios() {
-        return usuarioRepository.findAll(); // Usamos el método mágico del repositorio
+    // --- TUS MÉTODOS DE AUTENTICACIÓN (EXISTENTES) ---
+
+    // 1. REGISTRO (Encripta contraseña)
+    // Se usa tanto para registro público como para el admin
+    @PostMapping("/registro")
+    public Usuario registrarUsuario(@RequestBody Usuario usuario) {
+        return usuarioService.registrarUsuario(usuario);
     }
 
+    // 2. LOGIN (Valida credenciales)
     @PostMapping("/login")
-    public Usuario login(@RequestBody Map<String, String> credenciales) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> credenciales) {
         String email = credenciales.get("email");
         String password = credenciales.get("password");
 
-        // 1. Buscamos al usuario por correo
-        Usuario usuario = usuarioRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        Usuario usuario = usuarioService.login(email, password);
 
-        // 2. Verificamos la contraseña
-        if (usuario.getPassword().equals(password)) {
-            return usuario; // ¡Éxito! Devolvemos al usuario
+        if (usuario != null) {
+            return ResponseEntity.ok(usuario);
         } else {
-            throw new RuntimeException("Contraseña incorrecta");
+            return ResponseEntity.status(401).body("Credenciales incorrectas");
         }
     }
+
+    // --- NUEVOS MÉTODOS PARA EL PANEL DE ADMIN (FUSIONADOS) ---
+
+    // 3. LISTAR TODOS (Para la tabla de AdminUsers.jsx)
+    @GetMapping
+    public List<Usuario> listarUsuarios() {
+        return usuarioService.listarTodos();
+    }
+
+    // 4. CREAR USUARIO DESDE ADMIN
+    // El frontend AdminUsers.jsx envía un POST directo a /api/usuarios
+    // Reutilizamos la lógica de 'registrarUsuario' para que encripte la contraseña
+    @PostMapping
+    public Usuario crearUsuarioDesdeAdmin(@RequestBody Usuario usuario) {
+        return usuarioService.registrarUsuario(usuario);
+    }
+
+    // 5. ELIMINAR USUARIO
+    @DeleteMapping("/{id}")
+    public void eliminarUsuario(@PathVariable Long id) {
+        usuarioService.eliminarUsuario(id);
+    }
+    @GetMapping("/reparar-admin/{email}/{nuevaPassword}")
+    public Usuario repararAdmin(@PathVariable String email, @PathVariable String nuevaPassword) {
+        List<Usuario> usuarios = usuarioService.listarTodos();
+
+        for (Usuario u : usuarios) {
+            if (u.getEmail().equalsIgnoreCase(email)) {
+                u.setRol(Usuario.Rol.ADMIN);      // 1. Te vuelve ADMIN
+                u.setPassword(nuevaPassword);     // 2. Pone la nueva contraseña (texto plano)
+                return usuarioService.registrarUsuario(u); // 3. La encripta UNA sola vez y guarda
+            }
+        }
+        return null; // Si no encuentra el usuario
+    }
+
 }
