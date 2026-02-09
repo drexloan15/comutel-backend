@@ -37,10 +37,11 @@ public class TicketController {
         return ticketService.atenderTicket(id, tecnicoId);
     }
 
-    // 4. Finalizar
+    // 4. Finalizar con Nota
     @PutMapping("/{id}/finalizar")
-    public TicketDTO finalizarTicket(@PathVariable Long id) {
-        return ticketService.finalizarTicket(id);
+    public TicketDTO finalizarTicket(@PathVariable Long id, @RequestBody String notaCierre) {
+        // Pasamos la nota al servicio
+        return ticketService.finalizarTicket(id, notaCierre);
     }
 
     // 5. Métricas
@@ -71,4 +72,21 @@ public class TicketController {
     public List<HistorialTicket> obtenerHistorial(@PathVariable Long id) {
         return ticketService.obtenerHistorial(id);
     }
+
+    // --- AGREGAR ESTE MÉTODO ---
+    // 8. Obtener un ticket por ID (Para refrescar el detalle)
+    @GetMapping("/{id}")
+    public TicketDTO obtenerPorId(@PathVariable Long id) {
+        Ticket ticket = ticketService.obtenerPorId(id);
+        // Necesitamos convertirlo a DTO manualmente aquí o en el servicio
+        // Para hacerlo rápido, usaremos un DTO simple o exponemos la entidad
+        // (Lo ideal es usar el convertidor del servicio, pero el método es privado)
+
+        // OPCIÓN RÁPIDA: Crear un método público en el servicio o devolver la entidad
+        // Vamos a asumir que exponemos la entidad por ahora para desbloquearte
+        // O mejor, hagámoslo bien:
+        return ticketService.obtenerTicketDTO(id);
+    }
+
+
 }

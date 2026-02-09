@@ -10,7 +10,6 @@ import jakarta.mail.search.FlagTerm;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import com.comutel.backend.model.Prioridad;
 
 import java.util.Properties;
 
@@ -104,7 +103,7 @@ public class EmailTicketService {
         ticket.setDescripcion(descripcionLimpia);
 
         // Configuración de Prioridad
-        ticket.setPrioridad(Prioridad.MEDIA);
+        ticket.setPrioridad(Ticket.Prioridad.MEDIA);
 
         // 🚨 AGREGA ESTA LÍNEA (Vital para el SLA)
         ticket.calcularVencimiento();

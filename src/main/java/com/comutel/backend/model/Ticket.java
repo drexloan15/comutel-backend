@@ -12,21 +12,41 @@ public class Ticket {
     private Long id;
 
     private String titulo;
+
+    @Column(length = 1000) // Recomendado para descripciones largas
     private String descripcion;
 
     @Enumerated(EnumType.STRING)
     private Estado estado;
 
-    // --- NUEVOS CAMPOS ---
+    // --- CORRECCIÓN AQUÍ: ENUM CON HORAS SLA ---
     @Enumerated(EnumType.STRING)
-    private Prioridad prioridad; // Relación con el Enum (ALTA, MEDIA, BAJA)
+    private Prioridad prioridad;
+
+    public enum Prioridad {
+        BAJA(48),     // 48 Horas
+        MEDIA(24),    // 24 Horas
+        ALTA(8),      // 8 Horas
+        CRITICA(4);   // 4 Horas
+
+        private final int horasSLA;
+
+        Prioridad(int horasSLA) {
+            this.horasSLA = horasSLA;
+        }
+
+        public int getHorasSLA() {
+            return horasSLA;
+        }
+    }
+    // -------------------------------------------
 
     @ManyToOne
     @JoinColumn(name = "categoria_id")
-    private Categoria categoria; // Relación con la nueva tabla Categoría
+    private Categoria categoria;
 
     private LocalDateTime fechaCreacion;
-    private LocalDateTime fechaVencimiento; // Se calcula automático (Creación + Horas SLA)
+    private LocalDateTime fechaVencimiento;
 
     @ManyToOne
     @JoinColumn(name = "usuario_id")
@@ -36,30 +56,40 @@ public class Ticket {
     @JoinColumn(name = "tecnico_id")
     private Usuario tecnico; // Técnico asignado
 
-    // Enum interno de Estados (Si no lo tenías separado)
-    public enum Estado {
-        NUEVO, EN_PROCESO, PENDIENTE, RESUELTO, CERRADO
-    }
-
-    // Constructor vacío obligatorio para JPA
-    public Ticket() {
-        this.fechaCreacion = LocalDateTime.now();
-        this.estado = Estado.NUEVO;
-    }
-
-    // --- LÓGICA DE NEGOCIO EN LA ENTIDAD ---
-
-    // Método para calcular cuándo vence el ticket basado en su prioridad
-    public void calcularVencimiento() {
-        if (this.fechaCreacion != null && this.prioridad != null) {
-            this.fechaVencimiento = this.fechaCreacion.plusHours(this.prioridad.getHorasSLA());
-        }
-    }
     @ManyToOne
     @JoinColumn(name = "grupo_id")
     private GrupoResolutor grupoAsignado;
 
-    // Getters y Setters (Asegúrate de tenerlos todos, especialmente los nuevos)
+    // Enum de Estados
+    public enum Estado {
+        NUEVO, EN_PROCESO, PENDIENTE, RESUELTO, CERRADO
+    }
+
+    // Constructor vacío
+    public Ticket() {
+        this.fechaCreacion = LocalDateTime.now();
+        this.estado = Estado.NUEVO;
+        // Asignamos prioridad por defecto para evitar NullPointerException al calcular
+        if (this.prioridad == null) {
+            this.prioridad = Prioridad.BAJA;
+        }
+    }
+
+    // --- LÓGICA DE NEGOCIO ---
+    public void calcularVencimiento() {
+        if (this.fechaCreacion == null) {
+            this.fechaCreacion = LocalDateTime.now();
+        }
+        // Si no hay prioridad, asumimos BAJA
+        if (this.prioridad == null) {
+            this.prioridad = Prioridad.BAJA;
+        }
+
+        // Ahora sí funcionará getHorasSLA()
+        this.fechaVencimiento = this.fechaCreacion.plusHours(this.prioridad.getHorasSLA());
+    }
+
+    // --- GETTERS Y SETTERS ---
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getTitulo() { return titulo; }

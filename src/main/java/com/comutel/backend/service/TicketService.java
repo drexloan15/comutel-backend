@@ -55,7 +55,7 @@ public class TicketService {
         ticket.setTecnico(null);
 
         // Calcular SLA y Prioridad
-        if (ticket.getPrioridad() == null) ticket.setPrioridad(Prioridad.BAJA);
+        if (ticket.getPrioridad() == null) ticket.setPrioridad(Ticket.Prioridad.BAJA);
         ticket.calcularVencimiento();
 
         Ticket ticketGuardado = ticketRepository.save(ticket);
@@ -91,24 +91,36 @@ public class TicketService {
         return convertirADTO(ticketActualizado);
     }
 
-    // --- 3. FINALIZAR TICKET (Con Auditoría) ---
+    // --- 3. FINALIZAR TICKET (CORREGIDO - FORZANDO ESTADO) ---
     @Transactional
-    public TicketDTO finalizarTicket(Long ticketId) {
+    public TicketDTO finalizarTicket(Long ticketId, String notaCierre) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
 
-        // A. Obtenemos el comportamiento
-        TicketState estadoActual = stateFactory.getState(ticket.getEstado());
+        // 1. Validar que no esté cerrado ya
+        if (ticket.getEstado() == Ticket.Estado.RESUELTO || ticket.getEstado() == Ticket.Estado.CERRADO) {
+            throw new RuntimeException("El ticket ya está resuelto.");
+        }
 
-        // B. Ejecutamos la transición
+        // 2. FORZAMOS EL CAMBIO DE ESTADO DIRECTAMENTE (Saltamos el StatePattern por seguridad)
+        ticket.setEstado(Ticket.Estado.RESUELTO);
+
+        // 3. Obtener el técnico (actor)
         Usuario actor = ticket.getTecnico();
-        estadoActual.siguiente(ticket, actor);
 
+        // 4. Guardar cambios
         Ticket ticketGuardado = ticketRepository.save(ticket);
-        enviarCorreoResolucion(ticketGuardado);
 
-        // 📝 Auditoría: Guardamos el cierre
-        registrarHistorial(ticket, actor, "RESOLUCIÓN", "Ticket resuelto y cerrado.");
+        // 5. Enviar correo (Opcional, si falla no detiene el proceso)
+        try {
+            enviarCorreoResolucion(ticketGuardado);
+        } catch (Exception e) {
+            System.err.println("No se pudo enviar correo: " + e.getMessage());
+        }
+
+        // 6. Auditoría: Guardamos la nota técnica
+        String detalleAuditoria = "Ticket resuelto. Solución técnica: " + notaCierre;
+        registrarHistorial(ticket, actor, "RESOLUCIÓN", detalleAuditoria);
 
         return convertirADTO(ticketGuardado);
     }
@@ -173,12 +185,25 @@ public class TicketService {
         return comentarioRepository.save(new Comentario(texto, autor, ticket, imagen));
     }
 
+    // 📊 DASHBOARD: MÉTRICAS AVANZADAS
     public Map<String, Long> obtenerMetricas() {
         Map<String, Long> metricas = new HashMap<>();
+
+        // 1. Por Estado
         metricas.put("total", ticketRepository.count());
         metricas.put("nuevos", ticketRepository.countByEstado(Ticket.Estado.NUEVO));
         metricas.put("proceso", ticketRepository.countByEstado(Ticket.Estado.EN_PROCESO));
         metricas.put("resueltos", ticketRepository.countByEstado(Ticket.Estado.RESUELTO));
+        metricas.put("cerrados", ticketRepository.countByEstado(Ticket.Estado.CERRADO));
+
+        // 2. Por Prioridad (Asumiendo que tienes el Enum Prioridad.ALTA)
+        // Nota: Si no tienes un método countByPrioridad en el repo, agrégalo o usa filtros de stream
+        // Opción rápida con Streams si el repo no tiene el método listo:
+        long criticos = ticketRepository.findAll().stream()
+                .filter(t -> t.getPrioridad() == Ticket.Prioridad.ALTA && t.getEstado() != Ticket.Estado.RESUELTO)
+                .count();
+        metricas.put("criticos", criticos);
+
         return metricas;
     }
 
@@ -242,5 +267,10 @@ public class TicketService {
     }
     public List<HistorialTicket> obtenerHistorial(Long ticketId) {
         return historialRepository.findByTicketIdOrderByFechaDesc(ticketId);
+    }
+
+    public TicketDTO obtenerTicketDTO(Long id) {
+        Ticket ticket = obtenerPorId(id);
+        return convertirADTO(ticket);
     }
 }

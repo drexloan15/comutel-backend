@@ -25,4 +25,10 @@ public class GrupoController {
     public GrupoResolutor crearGrupo(@RequestBody GrupoResolutor grupo) {
         return grupoRepository.save(grupo);
     }
+
+    // --- AGREGAR ESTO PARA QUE FUNCIONE EL BOTÓN BORRAR 👇 ---
+    @DeleteMapping("/{id}")
+    public void eliminarGrupo(@PathVariable Long id) {
+        grupoRepository.deleteById(id);
+    }
 }
