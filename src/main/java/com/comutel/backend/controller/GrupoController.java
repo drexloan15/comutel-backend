@@ -9,7 +9,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/grupos")
-@CrossOrigin(origins = "http://localhost:5173") // Permite conexión con React
+
 public class GrupoController {
 
     @Autowired
@@ -20,15 +20,16 @@ public class GrupoController {
         return grupoRepository.findAll();
     }
 
-    // --- AGREGAR ESTO 👇 ---
+    // --- AGREGAR ESTO ðŸ‘‡ ---
     @PostMapping
     public GrupoResolutor crearGrupo(@RequestBody GrupoResolutor grupo) {
         return grupoRepository.save(grupo);
     }
 
-    // --- AGREGAR ESTO PARA QUE FUNCIONE EL BOTÓN BORRAR 👇 ---
+    // --- AGREGAR ESTO PARA QUE FUNCIONE EL BOTÃ“N BORRAR ðŸ‘‡ ---
     @DeleteMapping("/{id}")
     public void eliminarGrupo(@PathVariable Long id) {
         grupoRepository.deleteById(id);
     }
 }
+

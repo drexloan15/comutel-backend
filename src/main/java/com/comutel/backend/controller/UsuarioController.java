@@ -2,6 +2,7 @@ package com.comutel.backend.controller;
 
 import com.comutel.backend.model.Usuario;
 import com.comutel.backend.repository.UsuarioRepository;
+import com.comutel.backend.service.UsuarioService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,50 +13,40 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/usuarios")
-// ⚠️ IMPORTANTE: Quitamos @CrossOrigin de aquí para que use la Config Global (WebConfig)
-// y así permitir cookies/credenciales sin errores.
 public class UsuarioController {
 
     @Autowired
     private UsuarioRepository usuarioRepository;
 
-    // 1. Listar
+    @Autowired
+    private UsuarioService usuarioService;
+
     @GetMapping
     public List<Usuario> listarUsuarios() {
         return usuarioRepository.findAll();
     }
 
-    // 👇 ESTE ES EL MÉTODO QUE FALTABA 👇
-    // 2. Login
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> credenciales) {
-        String email = credenciales.get("email");
-        String password = credenciales.get("password");
+        String email = credenciales.getOrDefault("email", "").trim();
+        String password = credenciales.getOrDefault("password", "");
 
-        Optional<Usuario> usuarioOpt = usuarioRepository.findByEmail(email);
-
-        // Verificamos si existe y si la contraseña coincide
-        if (usuarioOpt.isPresent()) {
-            Usuario usuario = usuarioOpt.get();
-            if (usuario.getPassword().equals(password)) {
-                return ResponseEntity.ok(usuario);
-            }
+        Usuario usuario = usuarioService.login(email, password);
+        if (usuario != null) {
+            return ResponseEntity.ok(usuario);
         }
 
-        return ResponseEntity.status(401).body("Credenciales inválidas");
+        return ResponseEntity.status(401).body("Credenciales invalidas");
     }
-    // 👆 ------------------------------- 👆
 
-    // 3. Crear
     @PostMapping
     public Usuario crearUsuario(@RequestBody Usuario usuario) {
         if (usuario.getRol() == null) {
             usuario.setRol(Usuario.Rol.CLIENTE);
         }
-        return usuarioRepository.save(usuario);
+        return usuarioService.registrarUsuario(usuario);
     }
 
-    // 4. Eliminar
     @DeleteMapping("/{id}")
     public ResponseEntity<?> eliminarUsuario(@PathVariable Long id) {
         try {
@@ -66,7 +57,6 @@ public class UsuarioController {
         }
     }
 
-    // 5. Kit de Emergencia
     @GetMapping("/reparar-admin/{email}/{password}")
     public Usuario repararAdmin(@PathVariable String email, @PathVariable String password) {
         Optional<Usuario> existente = usuarioRepository.findByEmail(email);
@@ -75,6 +65,7 @@ public class UsuarioController {
         u.setNombre("Super Admin");
         u.setPassword(password);
         u.setRol(Usuario.Rol.ADMIN);
-        return usuarioRepository.save(u);
+        return usuarioService.registrarUsuario(u);
     }
 }
+

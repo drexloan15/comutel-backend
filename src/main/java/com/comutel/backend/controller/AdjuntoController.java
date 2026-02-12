@@ -17,7 +17,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/adjuntos")
-@CrossOrigin(origins = "http://localhost:5173")
+
 public class AdjuntoController {
 
     @Autowired private AdjuntoRepository adjuntoRepo;
@@ -73,3 +73,4 @@ public class AdjuntoController {
         }
     }
 }
+

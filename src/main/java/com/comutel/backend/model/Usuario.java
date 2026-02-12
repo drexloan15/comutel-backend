@@ -1,32 +1,34 @@
 package com.comutel.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
+
 @Data
 @Entity
 @Table(name= "usuarios")
-
 public class Usuario {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    @Column(nullable = false) // No puede estar vacío
+
+    @Column(nullable = false)
     private String nombre;
 
-    @Column(nullable = false, unique = true) // No puede repetirse el email
+    @Column(nullable = false, unique = true)
     private String email;
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Column(nullable = false)
     private String password;
 
-    @Enumerated(EnumType.STRING) // Guardamos el rol como texto ("ADMIN", "CLIENTE")
+    @Enumerated(EnumType.STRING)
     private Rol rol;
 
-    // Un pequeño "Enum" para definir los roles permitidos
     public enum Rol {
         ADMIN,
         TECNICO,
         CLIENTE
     }
-
 }
+

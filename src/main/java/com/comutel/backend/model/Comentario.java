@@ -1,6 +1,9 @@
 package com.comutel.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -20,33 +23,28 @@ public class Comentario {
     @JoinColumn(name = "autor_id")
     private Usuario autor;
 
+    @JsonIgnore
     @ManyToOne
     @JoinColumn(name = "ticket_id")
     private Ticket ticket;
 
-    // Campo antiguo (puedes dejarlo si tienes datos viejos, pero ya no lo usaremos)
     @Column(columnDefinition = "TEXT")
     private String imagenBase64;
 
-    // --- ✅ CAMPO NUEVO PARA EL CHAT CON ARCHIVOS ---
-    private String imagenUrl; // Aquí guardamos el nombre del archivo (ej: "foto1.png")
-    // -----------------------------------------------
+    private String imagenUrl;
 
-    // Constructor Vacío
     public Comentario() {
         this.fecha = LocalDateTime.now();
     }
 
-    // Constructor Principal (Usado por TicketService)
     public Comentario(String texto, Usuario autor, Ticket ticket, String imagenUrl) {
         this.texto = texto;
         this.autor = autor;
         this.ticket = ticket;
         this.fecha = LocalDateTime.now();
-        this.imagenUrl = imagenUrl; // <--- GUARDAMOS LA URL/NOMBRE AQUÍ
+        this.imagenUrl = imagenUrl;
     }
 
-    // --- Getters y Setters ---
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
@@ -55,6 +53,11 @@ public class Comentario {
 
     public LocalDateTime getFecha() { return fecha; }
     public void setFecha(LocalDateTime fecha) { this.fecha = fecha; }
+
+    @JsonProperty("fechaCreacion")
+    public LocalDateTime getFechaCreacion() {
+        return fecha;
+    }
 
     public Usuario getAutor() { return autor; }
     public void setAutor(Usuario autor) { this.autor = autor; }
@@ -65,7 +68,7 @@ public class Comentario {
     public String getImagenBase64() { return imagenBase64; }
     public void setImagenBase64(String imagenBase64) { this.imagenBase64 = imagenBase64; }
 
-    // ✅ Getters y Setters para imagenUrl (¡Importantes!)
     public String getImagenUrl() { return imagenUrl; }
     public void setImagenUrl(String imagenUrl) { this.imagenUrl = imagenUrl; }
 }
+
