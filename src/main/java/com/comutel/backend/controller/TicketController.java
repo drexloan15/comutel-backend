@@ -66,8 +66,8 @@ public class TicketController {
     }
 
     @GetMapping
-    public List<TicketDTO> obtenerTodos() {
-        return ticketService.obtenerTodos();
+    public List<TicketDTO> obtenerTodos(@RequestParam Long usuarioId) {
+        return ticketService.obtenerTodos(usuarioId);
     }
 
     @PutMapping("/{id}/atender/{tecnicoId}")
@@ -100,14 +100,34 @@ public class TicketController {
         return ticketService.asignarGrupo(id, grupoId, actorId);
     }
 
+    @PutMapping("/{id}/derivar")
+    public TicketDTO derivarTicket(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        Object grupoIdObj = payload.get("grupoId");
+        Object actorIdObj = payload.get("actorId");
+
+        if (grupoIdObj == null || actorIdObj == null) {
+            throw new ResponseStatusException(BAD_REQUEST, "grupoId y actorId son obligatorios");
+        }
+
+        Long grupoId = Long.valueOf(grupoIdObj.toString());
+        Long actorId = Long.valueOf(actorIdObj.toString());
+
+        Long tecnicoId = null;
+        if (payload.get("tecnicoId") != null && !payload.get("tecnicoId").toString().isBlank()) {
+            tecnicoId = Long.valueOf(payload.get("tecnicoId").toString());
+        }
+
+        return ticketService.derivarTicket(id, grupoId, tecnicoId, actorId);
+    }
+
     @GetMapping("/{id}/historial")
     public List<HistorialTicket> obtenerHistorial(@PathVariable Long id) {
         return ticketService.obtenerHistorial(id);
     }
 
     @GetMapping("/{id}")
-    public TicketDTO obtenerPorId(@PathVariable Long id) {
-        return ticketService.obtenerTicketDTO(id);
+    public TicketDTO obtenerPorId(@PathVariable Long id, @RequestParam Long usuarioId) {
+        return ticketService.obtenerTicketDTO(id, usuarioId);
     }
 
     @PostMapping("/{id}/iniciar-chat")

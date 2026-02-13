@@ -3,6 +3,8 @@ package com.comutel.backend.model;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
+import java.util.HashSet;
+import java.util.Set;
 
 @Data
 @Entity
@@ -24,6 +26,14 @@ public class Usuario {
 
     @Enumerated(EnumType.STRING)
     private Rol rol;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(
+            name = "usuario_grupos",
+            joinColumns = @JoinColumn(name = "usuario_id"),
+            inverseJoinColumns = @JoinColumn(name = "grupo_id")
+    )
+    private Set<GrupoResolutor> grupos = new HashSet<>();
 
     public enum Rol {
         ADMIN,

@@ -2,7 +2,6 @@ package com.comutel.backend.service;
 
 import com.comutel.backend.dto.TicketDTO;
 import com.comutel.backend.dto.UsuarioDTO;
-import com.comutel.backend.repository.UsuarioRepository;
 import com.comutel.backend.model.*;
 import com.comutel.backend.pattern.TicketState;
 import com.comutel.backend.pattern.TicketStateFactory;
@@ -11,9 +10,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,11 +29,6 @@ public class TicketService {
     @Autowired
     private TicketRepository ticketRepository;
 
-    // 👇 ESTE ES EL MÉTODO QUE TE FALTABA
-    public List<Ticket> listarTodos() {
-        return ticketRepository.findAll();
-    }
-
     @Autowired
     private UsuarioRepository usuarioRepository;
 
@@ -42,13 +38,16 @@ public class TicketService {
     @Autowired
     private EmailSenderService emailSenderService;
 
-    // 🏭 INYECCIÓN DE LA FÁBRICA (El cerebro de los estados)
     @Autowired
     private TicketStateFactory stateFactory;
 
+    @Autowired
+    private ActivoRepository activoRepository;
 
+    public List<Ticket> listarTodos() {
+        return ticketRepository.findAll();
+    }
 
-    // --- 1. CREAR TICKET ---
     @Transactional
     public TicketDTO crearTicket(Ticket ticket) {
         if (ticket.getUsuario() == null || ticket.getUsuario().getId() == null) {
@@ -62,80 +61,76 @@ public class TicketService {
         ticket.setEstado(Ticket.Estado.NUEVO);
         ticket.setTecnico(null);
 
-        // Calcular SLA y Prioridad
-        if (ticket.getPrioridad() == null) ticket.setPrioridad(Ticket.Prioridad.BAJA);
+        if (ticket.getPrioridad() == null) {
+            ticket.setPrioridad(Ticket.Prioridad.BAJA);
+        }
         ticket.calcularVencimiento();
 
         Ticket ticketGuardado = ticketRepository.save(ticket);
         enviarCorreoCreacion(ticketGuardado, usuario);
-
-        // 📝 Auditoría inicial
-        registrarHistorial(ticketGuardado, usuario, "CREACIÓN", "Ticket creado en el sistema");
+        registrarHistorial(ticketGuardado, usuario, "CREACION", "Ticket creado en el sistema");
 
         return convertirADTO(ticketGuardado);
     }
 
-    // --- 2. ATENDER TICKET (Con Auditoría) ---
     @Transactional
     public TicketDTO atenderTicket(Long ticketId, Long tecnicoId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
 
         Usuario tecnico = usuarioRepository.findById(tecnicoId)
-                .orElseThrow(() -> new RuntimeException("Técnico no encontrado"));
+                .orElseThrow(() -> new RuntimeException("Tecnico no encontrado"));
 
-        // A. Obtenemos el comportamiento del estado actual
-        TicketState estadoActual = stateFactory.getState(ticket.getEstado());
+        validarTecnicoParaGrupo(ticket, tecnico);
 
-        // B. Ejecutamos las reglas de negocio
-        estadoActual.asignarTecnico(ticket, tecnico, tecnico);
-        estadoActual.siguiente(ticket, tecnico);
+        if (ticket.getEstado() == Ticket.Estado.RESUELTO || ticket.getEstado() == Ticket.Estado.CERRADO) {
+            throw new RuntimeException("No se puede tomar un ticket cerrado o resuelto.");
+        }
+
+        ticket.setTecnico(tecnico);
+        if (ticket.getEstado() == Ticket.Estado.NUEVO || ticket.getEstado() == Ticket.Estado.PENDIENTE) {
+            ticket.setEstado(Ticket.Estado.EN_PROCESO);
+        }
 
         Ticket ticketActualizado = ticketRepository.save(ticket);
-
-        // 📝 Auditoría: Guardamos que el técnico lo tomó
-        registrarHistorial(ticket, tecnico, "ATENCIÓN", "Técnico " + tecnico.getNombre() + " inició la atención.");
+        registrarHistorial(ticketActualizado, tecnico, "ATENCION", "Tecnico " + tecnico.getNombre() + " inicio la atencion.");
 
         return convertirADTO(ticketActualizado);
     }
 
-    // --- 3. FINALIZAR TICKET (CORREGIDO - FORZANDO ESTADO) ---
     @Transactional
     public TicketDTO finalizarTicket(Long ticketId, String notaCierre) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
 
-        // 1. Validar que no esté cerrado ya
         if (ticket.getEstado() == Ticket.Estado.RESUELTO || ticket.getEstado() == Ticket.Estado.CERRADO) {
-            throw new RuntimeException("El ticket ya está resuelto.");
+            throw new RuntimeException("El ticket ya esta resuelto.");
         }
 
-        // 2. FORZAMOS EL CAMBIO DE ESTADO DIRECTAMENTE (Saltamos el StatePattern por seguridad)
         ticket.setEstado(Ticket.Estado.RESUELTO);
 
-        // 3. Obtener el técnico (actor)
         Usuario actor = ticket.getTecnico();
-
-        // 4. Guardar cambios
         Ticket ticketGuardado = ticketRepository.save(ticket);
 
-        // 5. Enviar correo (Opcional, si falla no detiene el proceso)
         try {
             enviarCorreoResolucion(ticketGuardado);
         } catch (Exception e) {
             System.err.println("No se pudo enviar correo: " + e.getMessage());
         }
 
-        // 6. Auditoría: Guardamos la nota técnica
-        String detalleAuditoria = "Ticket resuelto. Solución técnica: " + notaCierre;
-        registrarHistorial(ticket, actor, "RESOLUCIÓN", detalleAuditoria);
+        String detalleAuditoria = "Ticket resuelto. Solucion tecnica: " + notaCierre;
+        registrarHistorial(ticketGuardado, actor, "RESOLUCION", detalleAuditoria);
 
         return convertirADTO(ticketGuardado);
     }
 
-    // --- 4. NUEVA FUNCIONALIDAD: ASIGNAR A GRUPO ---
     @Transactional
     public TicketDTO asignarGrupo(Long ticketId, Long grupoId, Long usuarioActorId) {
+        return derivarTicket(ticketId, grupoId, null, usuarioActorId);
+    }
+
+    @Transactional
+    public TicketDTO derivarTicket(Long ticketId, Long grupoId, Long tecnicoId, Long usuarioActorId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
 
@@ -145,32 +140,44 @@ public class TicketService {
         Usuario actor = usuarioRepository.findById(usuarioActorId)
                 .orElseThrow(() -> new RuntimeException("Usuario actor no encontrado"));
 
-        // Lógica de Negocio
+        if (actor.getRol() == Usuario.Rol.CLIENTE) {
+            throw new RuntimeException("Solo ADMIN o TECNICO pueden derivar tickets.");
+        }
+
+        Usuario tecnicoDestino = null;
+        if (tecnicoId != null) {
+            tecnicoDestino = usuarioRepository.findById(tecnicoId)
+                    .orElseThrow(() -> new RuntimeException("Tecnico destino no encontrado"));
+            validarTecnicoParaGrupo(grupo, tecnicoDestino);
+        }
+
         ticket.setGrupoAsignado(grupo);
-        ticket.setTecnico(null); // Al cambiar de grupo, se limpia el técnico anterior
-        ticket.setEstado(Ticket.Estado.EN_PROCESO); // Pasa a proceso automáticamente
+        ticket.setTecnico(tecnicoDestino);
+        ticket.setEstado(Ticket.Estado.EN_PROCESO);
 
         Ticket ticketGuardado = ticketRepository.save(ticket);
 
-        // 📝 Auditoría: Guardar en el historial
-        registrarHistorial(ticket, actor, "REASIGNACIÓN", "Ticket derivado al grupo: " + grupo.getNombre());
+        String detalle = "Ticket derivado al grupo: " + grupo.getNombre();
+        if (tecnicoDestino != null) {
+            detalle += ". Tecnico asignado: " + tecnicoDestino.getNombre();
+        }
+        registrarHistorial(ticketGuardado, actor, "REASIGNACION", detalle);
 
         return convertirADTO(ticketGuardado);
     }
 
-    // --- 5. MÉTODO GENÉRICO: AVANZAR ESTADO ---
     @Transactional
     public TicketDTO siguienteEstado(Long ticketId, Long usuarioActorId) {
-        Ticket ticket = ticketRepository.findById(ticketId).orElseThrow();
-        Usuario actor = usuarioRepository.findById(usuarioActorId).orElseThrow();
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
+        Usuario actor = usuarioRepository.findById(usuarioActorId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
         TicketState estadoActual = stateFactory.getState(ticket.getEstado());
         estadoActual.siguiente(ticket, actor);
 
         return convertirADTO(ticketRepository.save(ticket));
     }
-
-    // --- 6. MÉTODOS AUXILIARES ---
 
     public List<Comentario> obtenerComentarios(Long ticketId) {
         return comentarioRepository.findByTicketId(ticketId);
@@ -186,27 +193,23 @@ public class TicketService {
         String imagen = null;
         if (payload.containsKey("imagen") && payload.get("imagen") != null) {
             String posibleImagen = payload.get("imagen").toString();
-            if (!posibleImagen.isEmpty() && !posibleImagen.equals("null")) imagen = posibleImagen;
+            if (!posibleImagen.isEmpty() && !"null".equals(posibleImagen)) {
+                imagen = posibleImagen;
+            }
         }
 
-        // Registrar comentario también como actividad si deseas, o dejarlo separado
         return comentarioRepository.save(new Comentario(texto, autor, ticket, imagen));
     }
 
-    // 📊 DASHBOARD: MÉTRICAS AVANZADAS
     public Map<String, Long> obtenerMetricas() {
         Map<String, Long> metricas = new HashMap<>();
 
-        // 1. Por Estado
         metricas.put("total", ticketRepository.count());
         metricas.put("nuevos", ticketRepository.countByEstado(Ticket.Estado.NUEVO));
         metricas.put("proceso", ticketRepository.countByEstado(Ticket.Estado.EN_PROCESO));
         metricas.put("resueltos", ticketRepository.countByEstado(Ticket.Estado.RESUELTO));
         metricas.put("cerrados", ticketRepository.countByEstado(Ticket.Estado.CERRADO));
 
-        // 2. Por Prioridad (Asumiendo que tienes el Enum Prioridad.ALTA)
-        // Nota: Si no tienes un método countByPrioridad en el repo, agrégalo o usa filtros de stream
-        // Opción rápida con Streams si el repo no tiene el método listo:
         long criticos = ticketRepository.findAll().stream()
                 .filter(t -> t.getPrioridad() == Ticket.Prioridad.ALTA && t.getEstado() != Ticket.Estado.RESUELTO)
                 .count();
@@ -215,17 +218,43 @@ public class TicketService {
         return metricas;
     }
 
-    public List<TicketDTO> obtenerTodos() {
-        return ticketRepository.findAll().stream().map(this::convertirADTO).collect(Collectors.toList());
+    public List<TicketDTO> obtenerTodos(Long usuarioId) {
+        if (usuarioId == null) {
+            throw new RuntimeException("usuarioId es obligatorio");
+        }
+
+        List<Ticket> ticketsVisibles;
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+            ticketsVisibles = ticketRepository.findAll();
+        } else if (usuario.getRol() == Usuario.Rol.TECNICO) {
+            Set<Long> gruposTecnico = usuario.getGrupos().stream()
+                    .map(GrupoResolutor::getId)
+                    .collect(Collectors.toSet());
+
+            if (gruposTecnico.isEmpty()) {
+                ticketsVisibles = List.of();
+            } else {
+                ticketsVisibles = ticketRepository.findDistinctByGrupoAsignadoIdIn(gruposTecnico);
+            }
+        } else {
+            ticketsVisibles = ticketRepository.findByUsuarioId(usuarioId);
+        }
+
+        return ticketsVisibles.stream().map(this::convertirADTO).collect(Collectors.toList());
     }
 
     public Ticket obtenerPorId(Long id) {
-        return ticketRepository.findById(id).orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
+        return ticketRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
     }
 
-    // --- MÉTODO PRIVADO PARA AUDITORÍA ---
     private void registrarHistorial(Ticket ticket, Usuario actor, String accion, String detalle) {
-        if (actor == null) return; // Evitar null pointer si no hay actor definido
+        if (actor == null) {
+            return;
+        }
         HistorialTicket historial = new HistorialTicket(ticket, actor, accion, detalle);
         historialRepository.save(historial);
     }
@@ -233,17 +262,20 @@ public class TicketService {
     private void enviarCorreoCreacion(Ticket ticket, Usuario usuario) {
         try {
             emailSenderService.enviarNotificacion(usuario.getEmail(), "Ticket #" + ticket.getId(), "Recibido: " + ticket.getTitulo());
-            emailSenderService.enviarNotificacion("jean.puccio@comutelperu.com", "🚨 Nuevo Ticket", "Cliente: " + usuario.getNombre());
-        } catch (Exception e) { System.err.println("Error email: " + e.getMessage()); }
+            emailSenderService.enviarNotificacion("jean.puccio@comutelperu.com", "Nuevo Ticket", "Cliente: " + usuario.getNombre());
+        } catch (Exception e) {
+            System.err.println("Error email: " + e.getMessage());
+        }
     }
 
     private void enviarCorreoResolucion(Ticket ticket) {
         try {
             emailSenderService.enviarNotificacion(ticket.getUsuario().getEmail(), "Ticket Resuelto", "Tu ticket ha sido resuelto.");
-        } catch (Exception e) { System.err.println("Error email: " + e.getMessage()); }
+        } catch (Exception e) {
+            System.err.println("Error email: " + e.getMessage());
+        }
     }
 
-    // --- CONVERTIDOR DTO (Corregido y Limpio) ---
     private TicketDTO convertirADTO(Ticket ticket) {
         TicketDTO dto = new TicketDTO();
         dto.setId(ticket.getId());
@@ -254,7 +286,9 @@ public class TicketService {
         dto.setEstado(ticket.getEstado() != null ? ticket.getEstado().toString() : "NUEVO");
         dto.setPrioridad(ticket.getPrioridad() != null ? ticket.getPrioridad().toString() : "BAJA");
 
-        if (ticket.getCategoria() != null) dto.setCategoria(ticket.getCategoria().getNombre());
+        if (ticket.getCategoria() != null) {
+            dto.setCategoria(ticket.getCategoria().getNombre());
+        }
 
         if (ticket.getGrupoAsignado() != null) {
             dto.setGrupoAsignado(ticket.getGrupoAsignado().getNombre());
@@ -267,6 +301,7 @@ public class TicketService {
             Usuario u = ticket.getUsuario();
             dto.setUsuario(new UsuarioDTO(u.getId(), u.getNombre(), u.getEmail(), u.getRol().toString()));
         }
+
         if (ticket.getTecnico() != null) {
             Usuario t = ticket.getTecnico();
             dto.setTecnico(new UsuarioDTO(t.getId(), t.getNombre(), t.getEmail(), t.getRol().toString()));
@@ -274,6 +309,7 @@ public class TicketService {
 
         return dto;
     }
+
     public List<HistorialTicket> obtenerHistorial(Long ticketId) {
         return historialRepository.findByTicketIdOrderByFechaDesc(ticketId);
     }
@@ -283,7 +319,19 @@ public class TicketService {
         return convertirADTO(ticket);
     }
 
-    // --- 7. NOTIFICACIÓN DE CHAT ---
+    public TicketDTO obtenerTicketDTO(Long id, Long usuarioId) {
+        Ticket ticket = obtenerPorId(id);
+
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (!puedeVerTicket(usuario, ticket)) {
+            throw new RuntimeException("No tienes permisos para ver este ticket.");
+        }
+
+        return convertirADTO(ticket);
+    }
+
     public void iniciarChat(Long ticketId, Long usuarioId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
@@ -292,33 +340,24 @@ public class TicketService {
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
         String mensaje = "El usuario " + iniciador.getNombre() + " ha iniciado un chat en el ticket #" + ticket.getId();
-        System.out.println("📧 LOG: " + mensaje);
+        System.out.println("LOG: " + mensaje);
 
-        // Enviar correo al dueño del ticket (si no es él quien inició)
         if (!ticket.getUsuario().getId().equals(usuarioId)) {
             emailSenderService.enviarNotificacion(
                     ticket.getUsuario().getEmail(),
-                    "💬 Chat iniciado en Ticket #" + ticket.getId(),
-                    "Un técnico ha iniciado el chat para atender tu solicitud."
+                    "Chat iniciado en Ticket #" + ticket.getId(),
+                    "Un tecnico ha iniciado el chat para atender tu solicitud."
             );
         }
 
-        // Enviar correo al técnico asignado (si existe y no es él quien inició)
         if (ticket.getTecnico() != null && !ticket.getTecnico().getId().equals(usuarioId)) {
             emailSenderService.enviarNotificacion(
                     ticket.getTecnico().getEmail(),
-                    "💬 Chat iniciado en Ticket #" + ticket.getId(),
+                    "Chat iniciado en Ticket #" + ticket.getId(),
                     "El usuario ha iniciado el chat en el ticket que atiendes."
             );
         }
     }
-
-
-    @Autowired
-    private ActivoRepository activoRepository; // 👈 NECESARIO PARA VINCULAR
-
-
-
 
     @Transactional
     public TicketDTO vincularActivo(Long ticketId, Long activoId) {
@@ -328,12 +367,10 @@ public class TicketService {
         Activo activo = activoRepository.findById(activoId)
                 .orElseThrow(() -> new RuntimeException("Activo no encontrado"));
 
-        // Inicializar lista si es nula
         if (ticket.getActivosAfectados() == null) {
-            ticket.setActivosAfectados(new java.util.ArrayList<>());
+            ticket.setActivosAfectados(new ArrayList<>());
         }
 
-        // Evitar duplicados
         if (!ticket.getActivosAfectados().contains(activo)) {
             ticket.getActivosAfectados().add(activo);
             ticketRepository.save(ticket);
@@ -341,27 +378,70 @@ public class TicketService {
 
         return convertirADTO(ticket);
     }
-    // ... dentro de TicketService.java ...
 
+    @Transactional
     public TicketDTO asignarTecnico(Long ticketId, Long tecnicoId) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
 
         Usuario tecnico = usuarioRepository.findById(tecnicoId)
-                .orElseThrow(() -> new RuntimeException("Técnico no encontrado"));
+                .orElseThrow(() -> new RuntimeException("Tecnico no encontrado"));
+
+        validarTecnicoParaGrupo(ticket, tecnico);
+
+        if (ticket.getEstado() == Ticket.Estado.RESUELTO || ticket.getEstado() == Ticket.Estado.CERRADO) {
+            throw new RuntimeException("No se puede asignar tecnico a un ticket cerrado o resuelto.");
+        }
 
         ticket.setTecnico(tecnico);
 
-        // Opcional: Si el ticket era NUEVO, pásalo a EN_PROCESO automáticamente
-        if (ticket.getEstado() == Ticket.Estado.NUEVO) {
+        if (ticket.getEstado() == Ticket.Estado.NUEVO || ticket.getEstado() == Ticket.Estado.PENDIENTE) {
             ticket.setEstado(Ticket.Estado.EN_PROCESO);
         }
 
         Ticket savedTicket = ticketRepository.save(ticket);
+        registrarHistorial(savedTicket, tecnico, "AUTO_ASIGNACION", "Tecnico se auto-asigno el ticket.");
 
-        // 📝 Auditoría
-        registrarHistorial(savedTicket, tecnico, "AUTO-ASIGNACIÓN", "Técnico se auto-asignó el ticket.");
+        return convertirADTO(savedTicket);
+    }
 
-        return convertirADTO(savedTicket); // Return DTO
+    private void validarTecnicoParaGrupo(Ticket ticket, Usuario tecnico) {
+        if (ticket.getGrupoAsignado() == null) {
+            return;
+        }
+        validarTecnicoParaGrupo(ticket.getGrupoAsignado(), tecnico);
+    }
+
+    private void validarTecnicoParaGrupo(GrupoResolutor grupo, Usuario tecnico) {
+        if (tecnico.getRol() != Usuario.Rol.TECNICO && tecnico.getRol() != Usuario.Rol.ADMIN) {
+            throw new RuntimeException("El usuario seleccionado no es tecnico.");
+        }
+
+        if (tecnico.getRol() == Usuario.Rol.ADMIN) {
+            return;
+        }
+
+        boolean perteneceAlGrupo = tecnico.getGrupos().stream()
+                .anyMatch(g -> g.getId().equals(grupo.getId()));
+
+        if (!perteneceAlGrupo) {
+            throw new RuntimeException("El tecnico no pertenece al grupo seleccionado.");
+        }
+    }
+
+    private boolean puedeVerTicket(Usuario usuario, Ticket ticket) {
+        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+            return true;
+        }
+
+        if (usuario.getRol() == Usuario.Rol.CLIENTE) {
+            return ticket.getUsuario() != null && ticket.getUsuario().getId().equals(usuario.getId());
+        }
+
+        if (ticket.getGrupoAsignado() == null) {
+            return false;
+        }
+
+        return usuario.getGrupos().stream().anyMatch(g -> g.getId().equals(ticket.getGrupoAsignado().getId()));
     }
 }

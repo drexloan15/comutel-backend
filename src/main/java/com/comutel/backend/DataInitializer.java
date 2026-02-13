@@ -10,6 +10,9 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
+import java.util.List;
+
 @Component
 @Profile("dev")
 public class DataInitializer implements CommandLineRunner {
@@ -28,6 +31,14 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        if (grupoRepository.count() == 0) {
+            System.out.println("Creando Grupos de Soporte...");
+            grupoRepository.save(new GrupoResolutor("Mesa de Ayuda (N1)", "Primer nivel de atencion"));
+            grupoRepository.save(new GrupoResolutor("Redes y Comunicaciones", "Problemas de internet y VPN"));
+            grupoRepository.save(new GrupoResolutor("Soporte en Campo", "Tecnicos presenciales"));
+            grupoRepository.save(new GrupoResolutor("Desarrollo", "Bugs y errores de software"));
+        }
+
         if (usuarioRepository.count() == 0) {
 
             System.out.println("Inicializando datos maestros...");
@@ -37,6 +48,7 @@ public class DataInitializer implements CommandLineRunner {
             tecnico.setEmail("jean.puccio@comutelperu.com");
             tecnico.setRol(Usuario.Rol.TECNICO);
             tecnico.setPassword(passwordEncoder.encode(defaultPassword));
+            tecnico.setGrupos(new HashSet<>(grupoRepository.findAll()));
 
             usuarioRepository.save(tecnico);
             System.out.println("Usuario Tecnico creado: " + tecnico.getEmail());
@@ -54,12 +66,13 @@ public class DataInitializer implements CommandLineRunner {
             System.out.println("La base de datos ya tiene usuarios. No se requiere inicializacion.");
         }
 
-        if (grupoRepository.count() == 0) {
-            System.out.println("Creando Grupos de Soporte...");
-            grupoRepository.save(new GrupoResolutor("Mesa de Ayuda (N1)", "Primer nivel de atencion"));
-            grupoRepository.save(new GrupoResolutor("Redes y Comunicaciones", "Problemas de internet y VPN"));
-            grupoRepository.save(new GrupoResolutor("Soporte en Campo", "Tecnicos presenciales"));
-            grupoRepository.save(new GrupoResolutor("Desarrollo", "Bugs y errores de software"));
-        }
+        usuarioRepository.findByEmailIgnoreCase("jean.puccio@comutelperu.com").ifPresent(tecnico -> {
+            if (tecnico.getRol() == Usuario.Rol.TECNICO && (tecnico.getGrupos() == null || tecnico.getGrupos().isEmpty())) {
+                List<GrupoResolutor> grupos = grupoRepository.findAll();
+                tecnico.setGrupos(new HashSet<>(grupos));
+                usuarioRepository.save(tecnico);
+                System.out.println("Se asignaron grupos por defecto al tecnico seed.");
+            }
+        });
     }
 }

@@ -1,12 +1,18 @@
 package com.comutel.backend.service;
 
+import com.comutel.backend.model.GrupoResolutor;
 import com.comutel.backend.model.Usuario;
+import com.comutel.backend.repository.GrupoResolutorRepository;
 import com.comutel.backend.repository.UsuarioRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class UsuarioService {
@@ -16,6 +22,9 @@ public class UsuarioService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private GrupoResolutorRepository grupoResolutorRepository;
 
     public Usuario registrarUsuario(Usuario usuario) {
         String passEncriptada = passwordEncoder.encode(usuario.getPassword());
@@ -81,6 +90,34 @@ public class UsuarioService {
 
     public java.util.List<Usuario> listarTodos() {
         return usuarioRepository.findAll();
+    }
+
+    public List<Usuario> listarTecnicosPorGrupo(Long grupoId) {
+        if (grupoId == null) {
+            return usuarioRepository.findByRol(Usuario.Rol.TECNICO);
+        }
+        return usuarioRepository.findByRolAndGruposId(Usuario.Rol.TECNICO, grupoId);
+    }
+
+    @Transactional
+    public Usuario asignarGrupos(Long usuarioId, List<Long> grupoIds) {
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (usuario.getRol() != Usuario.Rol.TECNICO) {
+            throw new RuntimeException("Solo se pueden asignar grupos a usuarios con rol TECNICO");
+        }
+
+        Set<GrupoResolutor> grupos = new HashSet<>();
+        if (grupoIds != null && !grupoIds.isEmpty()) {
+            grupos.addAll(grupoResolutorRepository.findAllById(grupoIds));
+            if (grupos.size() != grupoIds.size()) {
+                throw new RuntimeException("Uno o mas grupos no existen");
+            }
+        }
+
+        usuario.setGrupos(grupos);
+        return usuarioRepository.save(usuario);
     }
 
     public void eliminarUsuario(Long id) {

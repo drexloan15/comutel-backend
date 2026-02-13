@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -46,6 +47,26 @@ public class UsuarioController {
             usuario.setRol(Usuario.Rol.CLIENTE);
         }
         return usuarioService.registrarUsuario(usuario);
+    }
+
+    @GetMapping("/tecnicos")
+    public List<Usuario> listarTecnicos(@RequestParam(required = false) Long grupoId) {
+        return usuarioService.listarTecnicosPorGrupo(grupoId);
+    }
+
+    @PutMapping("/{id}/grupos")
+    public Usuario asignarGrupos(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        Object gruposObj = payload.get("grupoIds");
+        List<Long> grupoIds = List.of();
+
+        if (gruposObj instanceof List<?> lista) {
+            grupoIds = lista.stream()
+                    .map(Object::toString)
+                    .map(Long::valueOf)
+                    .collect(Collectors.toList());
+        }
+
+        return usuarioService.asignarGrupos(id, grupoIds);
     }
 
     @DeleteMapping("/{id}")
