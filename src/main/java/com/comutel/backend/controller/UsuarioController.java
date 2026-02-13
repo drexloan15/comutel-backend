@@ -4,6 +4,7 @@ import com.comutel.backend.model.Usuario;
 import com.comutel.backend.repository.UsuarioRepository;
 import com.comutel.backend.service.UsuarioService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -59,6 +60,23 @@ public class UsuarioController {
 
     @GetMapping("/reparar-admin/{email}/{password}")
     public Usuario repararAdmin(@PathVariable String email, @PathVariable String password) {
+        return repararAdminInternal(email, password);
+    }
+
+    @PostMapping("/reparar-admin")
+    public ResponseEntity<?> repararAdminSeguro(@RequestBody Map<String, String> request) {
+        String email = request.getOrDefault("email", "").trim();
+        String password = request.getOrDefault("password", "");
+
+        if (email.isEmpty() || password.isEmpty()) {
+            return ResponseEntity.badRequest().body("email y password son obligatorios");
+        }
+
+        Usuario usuario = repararAdminInternal(email, password);
+        return ResponseEntity.status(HttpStatus.OK).body(usuario);
+    }
+
+    private Usuario repararAdminInternal(String email, String password) {
         Optional<Usuario> existente = usuarioRepository.findByEmail(email);
         Usuario u = existente.orElse(new Usuario());
         u.setEmail(email);
