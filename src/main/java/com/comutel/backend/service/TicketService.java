@@ -227,7 +227,7 @@ public class TicketService {
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
-        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+        if (esRolAdministrador(usuario)) {
             ticketsVisibles = ticketRepository.findAll();
         } else if (usuario.getRol() == Usuario.Rol.TECNICO) {
             Set<Long> gruposTecnico = usuario.getGrupos().stream()
@@ -413,11 +413,11 @@ public class TicketService {
     }
 
     private void validarTecnicoParaGrupo(GrupoResolutor grupo, Usuario tecnico) {
-        if (tecnico.getRol() != Usuario.Rol.TECNICO && tecnico.getRol() != Usuario.Rol.ADMIN) {
+        if (tecnico.getRol() != Usuario.Rol.TECNICO && !esRolAdministrador(tecnico)) {
             throw new RuntimeException("El usuario seleccionado no es tecnico.");
         }
 
-        if (tecnico.getRol() == Usuario.Rol.ADMIN) {
+        if (esRolAdministrador(tecnico)) {
             return;
         }
 
@@ -425,12 +425,12 @@ public class TicketService {
                 .anyMatch(g -> g.getId().equals(grupo.getId()));
 
         if (!perteneceAlGrupo) {
-            throw new RuntimeException("El tecnico no pertenece al grupo seleccionado.");
+            throw new RuntimeException("El tecnico no pertenece al grupo seleccionado. Asignalo al grupo antes de derivar.");
         }
     }
 
     private boolean puedeVerTicket(Usuario usuario, Ticket ticket) {
-        if (usuario.getRol() == Usuario.Rol.ADMIN) {
+        if (esRolAdministrador(usuario)) {
             return true;
         }
 
@@ -443,5 +443,9 @@ public class TicketService {
         }
 
         return usuario.getGrupos().stream().anyMatch(g -> g.getId().equals(ticket.getGrupoAsignado().getId()));
+    }
+
+    private boolean esRolAdministrador(Usuario usuario) {
+        return usuario.getRol() == Usuario.Rol.ADMIN || usuario.getRol() == Usuario.Rol.TESTERADMIN;
     }
 }

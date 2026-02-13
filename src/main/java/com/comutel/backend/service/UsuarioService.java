@@ -99,14 +99,27 @@ public class UsuarioService {
         return usuarioRepository.findByRolAndGruposId(Usuario.Rol.TECNICO, grupoId);
     }
 
+    public List<Usuario> listarUsuariosPorGrupo(Long grupoId) {
+        return usuarioRepository.findByGruposId(grupoId);
+    }
+
+    @Transactional
+    public Usuario actualizarRol(Long usuarioId, Usuario.Rol nuevoRol) {
+        Usuario usuario = usuarioRepository.findById(usuarioId)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        if (nuevoRol == null) {
+            throw new RuntimeException("Rol invalido");
+        }
+
+        usuario.setRol(nuevoRol);
+        return usuarioRepository.save(usuario);
+    }
+
     @Transactional
     public Usuario asignarGrupos(Long usuarioId, List<Long> grupoIds) {
         Usuario usuario = usuarioRepository.findById(usuarioId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
-
-        if (usuario.getRol() != Usuario.Rol.TECNICO) {
-            throw new RuntimeException("Solo se pueden asignar grupos a usuarios con rol TECNICO");
-        }
 
         Set<GrupoResolutor> grupos = new HashSet<>();
         if (grupoIds != null && !grupoIds.isEmpty()) {
@@ -118,6 +131,41 @@ public class UsuarioService {
 
         usuario.setGrupos(grupos);
         return usuarioRepository.save(usuario);
+    }
+
+    @Transactional
+    public List<Usuario> asignarUsuariosAGrupo(Long grupoId, List<Long> usuarioIds) {
+        GrupoResolutor grupo = grupoResolutorRepository.findById(grupoId)
+                .orElseThrow(() -> new RuntimeException("Grupo no encontrado"));
+
+        Set<Long> idsObjetivo = new HashSet<>();
+        if (usuarioIds != null) {
+            idsObjetivo.addAll(usuarioIds);
+        }
+
+        List<Usuario> usuariosDelGrupo = usuarioRepository.findByGruposId(grupoId);
+        for (Usuario usuario : usuariosDelGrupo) {
+            if (!idsObjetivo.contains(usuario.getId())) {
+                usuario.getGrupos().removeIf(g -> g.getId().equals(grupoId));
+            }
+        }
+
+        if (!idsObjetivo.isEmpty()) {
+            List<Usuario> usuariosDestino = usuarioRepository.findAllById(idsObjetivo);
+            if (usuariosDestino.size() != idsObjetivo.size()) {
+                throw new RuntimeException("Uno o mas usuarios no existen");
+            }
+            for (Usuario usuario : usuariosDestino) {
+                if (usuario.getGrupos() == null) {
+                    usuario.setGrupos(new HashSet<>());
+                }
+                usuario.getGrupos().add(grupo);
+            }
+            usuarioRepository.saveAll(usuariosDestino);
+        }
+
+        usuarioRepository.saveAll(usuariosDelGrupo);
+        return usuarioRepository.findByGruposId(grupoId);
     }
 
     public void eliminarUsuario(Long id) {

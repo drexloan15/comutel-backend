@@ -7,11 +7,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
 @RestController
 @RequestMapping("/api/usuarios")
@@ -54,6 +57,11 @@ public class UsuarioController {
         return usuarioService.listarTecnicosPorGrupo(grupoId);
     }
 
+    @GetMapping("/grupos/{grupoId}")
+    public List<Usuario> listarUsuariosDeGrupo(@PathVariable Long grupoId) {
+        return usuarioService.listarUsuariosPorGrupo(grupoId);
+    }
+
     @PutMapping("/{id}/grupos")
     public Usuario asignarGrupos(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
         Object gruposObj = payload.get("grupoIds");
@@ -67,6 +75,21 @@ public class UsuarioController {
         }
 
         return usuarioService.asignarGrupos(id, grupoIds);
+    }
+
+    @PutMapping("/{id}/rol")
+    public Usuario actualizarRol(@PathVariable Long id, @RequestBody Map<String, String> payload) {
+        String rol = payload.getOrDefault("rol", "").trim();
+        if (rol.isEmpty()) {
+            throw new ResponseStatusException(BAD_REQUEST, "rol es obligatorio");
+        }
+
+        try {
+            Usuario.Rol nuevoRol = Usuario.Rol.valueOf(rol.toUpperCase());
+            return usuarioService.actualizarRol(id, nuevoRol);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(BAD_REQUEST, "rol invalido");
+        }
     }
 
     @DeleteMapping("/{id}")
