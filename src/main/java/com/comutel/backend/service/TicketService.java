@@ -3,9 +3,8 @@ package com.comutel.backend.service;
 import com.comutel.backend.dto.TicketDTO;
 import com.comutel.backend.dto.UsuarioDTO;
 import com.comutel.backend.model.*;
-import com.comutel.backend.pattern.TicketState;
-import com.comutel.backend.pattern.TicketStateFactory;
 import com.comutel.backend.repository.*;
+import com.comutel.backend.workflow.integration.TicketWorkflowBridge;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,10 +38,10 @@ public class TicketService {
     private EmailSenderService emailSenderService;
 
     @Autowired
-    private TicketStateFactory stateFactory;
+    private ActivoRepository activoRepository;
 
     @Autowired
-    private ActivoRepository activoRepository;
+    private TicketWorkflowBridge ticketWorkflowBridge;
 
     public List<Ticket> listarTodos() {
         return ticketRepository.findAll();
@@ -60,6 +59,12 @@ public class TicketService {
         ticket.setUsuario(usuario);
         ticket.setEstado(Ticket.Estado.NUEVO);
         ticket.setTecnico(null);
+        if (ticket.getProcessType() == null || ticket.getProcessType().isBlank()) {
+            ticket.setProcessType(TicketWorkflowBridge.DEFAULT_PROCESS_TYPE);
+        }
+        if (ticket.getWorkflowKey() == null || ticket.getWorkflowKey().isBlank()) {
+            ticket.setWorkflowKey(TicketWorkflowBridge.DEFAULT_WORKFLOW_KEY);
+        }
 
         if (ticket.getPrioridad() == null) {
             ticket.setPrioridad(Ticket.Prioridad.BAJA);
@@ -67,6 +72,7 @@ public class TicketService {
         ticket.calcularVencimiento();
 
         Ticket ticketGuardado = ticketRepository.save(ticket);
+        ticketGuardado = ticketWorkflowBridge.startForTicket(ticketGuardado, usuario.getId());
         enviarCorreoCreacion(ticketGuardado, usuario);
         registrarHistorial(ticketGuardado, usuario, "CREACION", "Ticket creado en el sistema");
 
@@ -87,12 +93,13 @@ public class TicketService {
             throw new RuntimeException("No se puede tomar un ticket cerrado o resuelto.");
         }
 
-        ticket.setTecnico(tecnico);
-        if (ticket.getEstado() == Ticket.Estado.NUEVO || ticket.getEstado() == Ticket.Estado.PENDIENTE) {
-            ticket.setEstado(Ticket.Estado.EN_PROCESO);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("tecnicoId", tecnicoId);
+        if (ticket.getGrupoAsignado() != null) {
+            payload.put("grupoId", ticket.getGrupoAsignado().getId());
         }
 
-        Ticket ticketActualizado = ticketRepository.save(ticket);
+        Ticket ticketActualizado = ticketWorkflowBridge.fireEvent(ticket, "TAKE_OWNERSHIP", tecnicoId, payload);
         registrarHistorial(ticketActualizado, tecnico, "ATENCION", "Tecnico " + tecnico.getNombre() + " inicio la atencion.");
 
         return convertirADTO(ticketActualizado);
@@ -107,10 +114,15 @@ public class TicketService {
             throw new RuntimeException("El ticket ya esta resuelto.");
         }
 
-        ticket.setEstado(Ticket.Estado.RESUELTO);
-
         Usuario actor = ticket.getTecnico();
-        Ticket ticketGuardado = ticketRepository.save(ticket);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("notaCierre", notaCierre);
+        Ticket ticketGuardado = ticketWorkflowBridge.fireEvent(
+                ticket,
+                "RESOLVE",
+                actor != null ? actor.getId() : null,
+                payload
+        );
 
         try {
             enviarCorreoResolucion(ticketGuardado);
@@ -151,11 +163,13 @@ public class TicketService {
             validarTecnicoParaGrupo(grupo, tecnicoDestino);
         }
 
-        ticket.setGrupoAsignado(grupo);
-        ticket.setTecnico(tecnicoDestino);
-        ticket.setEstado(Ticket.Estado.EN_PROCESO);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("grupoId", grupoId);
+        if (tecnicoId != null) {
+            payload.put("tecnicoId", tecnicoId);
+        }
 
-        Ticket ticketGuardado = ticketRepository.save(ticket);
+        Ticket ticketGuardado = ticketWorkflowBridge.fireEvent(ticket, "ESCALATE", usuarioActorId, payload);
 
         String detalle = "Ticket derivado al grupo: " + grupo.getNombre();
         if (tecnicoDestino != null) {
@@ -172,11 +186,18 @@ public class TicketService {
                 .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
         Usuario actor = usuarioRepository.findById(usuarioActorId)
                 .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        Ticket updated = ticketWorkflowBridge.fireEvent(ticket, "NEXT", actor.getId(), Map.of());
+        return convertirADTO(updated);
+    }
 
-        TicketState estadoActual = stateFactory.getState(ticket.getEstado());
-        estadoActual.siguiente(ticket, actor);
-
-        return convertirADTO(ticketRepository.save(ticket));
+    @Transactional
+    public TicketDTO ejecutarEventoWorkflow(Long ticketId, String eventKey, Long actorId, Map<String, Object> payload) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket no encontrado"));
+        Ticket updated = ticketWorkflowBridge.fireEvent(ticket, eventKey, actorId, payload == null ? Map.of() : payload);
+        Usuario actor = actorId == null ? null : usuarioRepository.findById(actorId).orElse(null);
+        registrarHistorial(updated, actor, "WORKFLOW_EVENT", "Evento " + eventKey + " ejecutado sobre workflow.");
+        return convertirADTO(updated);
     }
 
     public List<Comentario> obtenerComentarios(Long ticketId) {
@@ -294,6 +315,10 @@ public class TicketService {
             dto.setGrupoAsignado(ticket.getGrupoAsignado().getNombre());
         }
 
+        dto.setWorkflowInstanceId(ticket.getWorkflowInstanceId());
+        dto.setWorkflowStateKey(ticket.getWorkflowStateKey());
+        dto.setProcessType(ticket.getProcessType());
+
         dto.setFechaCreacion(ticket.getFechaCreacion() != null ? ticket.getFechaCreacion().toString() : null);
         dto.setFechaVencimiento(ticket.getFechaVencimiento() != null ? ticket.getFechaVencimiento().toString() : null);
 
@@ -393,13 +418,12 @@ public class TicketService {
             throw new RuntimeException("No se puede asignar tecnico a un ticket cerrado o resuelto.");
         }
 
-        ticket.setTecnico(tecnico);
-
-        if (ticket.getEstado() == Ticket.Estado.NUEVO || ticket.getEstado() == Ticket.Estado.PENDIENTE) {
-            ticket.setEstado(Ticket.Estado.EN_PROCESO);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("tecnicoId", tecnicoId);
+        if (ticket.getGrupoAsignado() != null) {
+            payload.put("grupoId", ticket.getGrupoAsignado().getId());
         }
-
-        Ticket savedTicket = ticketRepository.save(ticket);
+        Ticket savedTicket = ticketWorkflowBridge.fireEvent(ticket, "ASSIGN_TECHNICIAN", tecnicoId, payload);
         registrarHistorial(savedTicket, tecnico, "AUTO_ASIGNACION", "Tecnico se auto-asigno el ticket.");
 
         return convertirADTO(savedTicket);

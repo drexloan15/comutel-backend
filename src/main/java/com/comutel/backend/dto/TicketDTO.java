@@ -15,6 +15,9 @@ public class TicketDTO {
     private String fechaCreacion;
     private String fechaVencimiento;// NUEVO: Para saber el SLA
     private String grupoAsignado; // <--- NUEVO: Solo enviamos el nombre del grupo
+    private Long workflowInstanceId;
+    private String workflowStateKey;
+    private String processType;
 
     private UsuarioDTO usuario;
     private UsuarioDTO tecnico;
@@ -57,4 +60,10 @@ public class TicketDTO {
 
     public String getGrupoAsignado() { return grupoAsignado; }
     public void setGrupoAsignado(String grupoAsignado) { this.grupoAsignado = grupoAsignado; }
+    public Long getWorkflowInstanceId() { return workflowInstanceId; }
+    public void setWorkflowInstanceId(Long workflowInstanceId) { this.workflowInstanceId = workflowInstanceId; }
+    public String getWorkflowStateKey() { return workflowStateKey; }
+    public void setWorkflowStateKey(String workflowStateKey) { this.workflowStateKey = workflowStateKey; }
+    public String getProcessType() { return processType; }
+    public void setProcessType(String processType) { this.processType = processType; }
 }

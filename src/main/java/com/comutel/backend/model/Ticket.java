@@ -60,6 +60,18 @@ public class Ticket {
     @JoinColumn(name = "grupo_id")
     private GrupoResolutor grupoAsignado;
 
+    @Column(name = "workflow_instance_id")
+    private Long workflowInstanceId;
+
+    @Column(name = "workflow_key")
+    private String workflowKey;
+
+    @Column(name = "workflow_state_key")
+    private String workflowStateKey;
+
+    @Column(name = "process_type")
+    private String processType;
+
     // Enum de Estados
     public enum Estado {
         NUEVO, EN_PROCESO, PENDIENTE, RESUELTO, CERRADO
@@ -119,6 +131,14 @@ public class Ticket {
     public void setTecnico(Usuario tecnico) { this.tecnico = tecnico; }
     public GrupoResolutor getGrupoAsignado() { return grupoAsignado; }
     public void setGrupoAsignado(GrupoResolutor grupoAsignado) { this.grupoAsignado = grupoAsignado; }
+    public Long getWorkflowInstanceId() { return workflowInstanceId; }
+    public void setWorkflowInstanceId(Long workflowInstanceId) { this.workflowInstanceId = workflowInstanceId; }
+    public String getWorkflowKey() { return workflowKey; }
+    public void setWorkflowKey(String workflowKey) { this.workflowKey = workflowKey; }
+    public String getWorkflowStateKey() { return workflowStateKey; }
+    public void setWorkflowStateKey(String workflowStateKey) { this.workflowStateKey = workflowStateKey; }
+    public String getProcessType() { return processType; }
+    public void setProcessType(String processType) { this.processType = processType; }
     public java.util.List<Activo> getActivosAfectados() { return activosAfectados; }
     public void setActivosAfectados(java.util.List<Activo> activosAfectados) { this.activosAfectados = activosAfectados; }
 }

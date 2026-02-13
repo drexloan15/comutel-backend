@@ -42,6 +42,12 @@ public class TicketController {
         Ticket ticket = new Ticket();
         ticket.setTitulo((String) payload.get("titulo"));
         ticket.setDescripcion((String) payload.get("descripcion"));
+        if (payload.get("processType") != null) {
+            ticket.setProcessType(payload.get("processType").toString());
+        }
+        if (payload.get("workflowKey") != null) {
+            ticket.setWorkflowKey(payload.get("workflowKey").toString());
+        }
 
         String prioridadStr = (String) payload.get("prioridad");
         if (prioridadStr != null && !prioridadStr.isBlank()) {
@@ -162,6 +168,16 @@ public class TicketController {
     public ResponseEntity<TicketDTO> asignarTecnico(@PathVariable Long id, @PathVariable Long tecnicoId) {
         TicketDTO ticketActualizado = ticketService.asignarTecnico(id, tecnicoId);
         return ResponseEntity.ok(ticketActualizado);
+    }
+
+    @PostMapping("/{id}/transition/{eventKey}")
+    public TicketDTO ejecutarEventoWorkflow(
+            @PathVariable Long id,
+            @PathVariable String eventKey,
+            @RequestParam(required = false) Long actorId,
+            @RequestBody(required = false) Map<String, Object> payload
+    ) {
+        return ticketService.ejecutarEventoWorkflow(id, eventKey, actorId, payload);
     }
 }
 
