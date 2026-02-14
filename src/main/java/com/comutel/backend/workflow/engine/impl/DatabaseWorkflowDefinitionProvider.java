@@ -14,8 +14,28 @@ public class DatabaseWorkflowDefinitionProvider implements WorkflowDefinitionPro
 
     @Override
     public WorkflowDefinition loadActive(String workflowKey, String processType) {
-        return workflowDefinitionRepository
-                .findFirstByKeyAndProcessTypeAndActiveTrueOrderByVersionDesc(workflowKey, processType)
+        if (workflowKey != null && processType != null) {
+            var exact = workflowDefinitionRepository.findFirstByKeyAndProcessTypeAndActiveTrueOrderByVersionDesc(workflowKey, processType);
+            if (exact.isPresent()) {
+                return exact.get();
+            }
+        }
+
+        if (processType != null) {
+            var byProcessType = workflowDefinitionRepository.findFirstByProcessTypeAndActiveTrueOrderByVersionDesc(processType);
+            if (byProcessType.isPresent()) {
+                return byProcessType.get();
+            }
+        }
+
+        if (workflowKey != null) {
+            var byKey = workflowDefinitionRepository.findFirstByKeyAndActiveTrueOrderByVersionDesc(workflowKey);
+            if (byKey.isPresent()) {
+                return byKey.get();
+            }
+        }
+
+        return workflowDefinitionRepository.findFirstByActiveTrueOrderByVersionDesc()
                 .orElseThrow(() -> new RuntimeException("No existe workflow activo para key=" + workflowKey + " processType=" + processType));
     }
 

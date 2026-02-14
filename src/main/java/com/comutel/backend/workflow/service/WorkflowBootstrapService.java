@@ -62,7 +62,24 @@ public class WorkflowBootstrapService {
     }
 
     private void ensureWorkflow(String key, String name, String processType, WorkflowSlaPolicy slaPolicy) {
-        if (definitionRepository.existsByKeyAndProcessType(key, processType)) {
+        if (definitionRepository.findFirstByKeyAndProcessTypeAndActiveTrueOrderByVersionDesc(key, processType).isPresent()) {
+            return;
+        }
+
+        List<WorkflowDefinition> existing = definitionRepository.findByProcessTypeOrderByKeyAscVersionDesc(processType).stream()
+                .filter(d -> key.equalsIgnoreCase(d.getKey()))
+                .toList();
+
+        if (!existing.isEmpty()) {
+            WorkflowDefinition latest = existing.stream()
+                    .max(java.util.Comparator.comparingInt(WorkflowDefinition::getVersion))
+                    .orElse(existing.get(0));
+            latest.setActive(true);
+            latest.setStatus(WorkflowDefinitionStatus.PUBLISHED);
+            if (latest.getPublishedAt() == null) {
+                latest.setPublishedAt(LocalDateTime.now());
+            }
+            definitionRepository.save(latest);
             return;
         }
 

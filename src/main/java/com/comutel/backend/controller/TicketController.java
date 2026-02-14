@@ -3,6 +3,7 @@ package com.comutel.backend.controller;
 import com.comutel.backend.dto.TicketDTO;
 import com.comutel.backend.model.*;
 import com.comutel.backend.repository.ActivoRepository;
+import com.comutel.backend.repository.CategoriaRepository;
 import com.comutel.backend.repository.ComentarioRepository;
 import com.comutel.backend.repository.UsuarioRepository;
 import com.comutel.backend.service.EmailSenderService;
@@ -35,6 +36,9 @@ public class TicketController {
     private UsuarioRepository usuarioRepository;
 
     @Autowired
+    private CategoriaRepository categoriaRepository;
+
+    @Autowired
     private ComentarioRepository comentarioRepository;
 
     @PostMapping
@@ -47,6 +51,12 @@ public class TicketController {
         }
         if (payload.get("workflowKey") != null) {
             ticket.setWorkflowKey(payload.get("workflowKey").toString());
+        }
+        if (payload.containsKey("categoriaId") && payload.get("categoriaId") != null && !payload.get("categoriaId").toString().isBlank()) {
+            Long categoriaId = Long.valueOf(payload.get("categoriaId").toString());
+            Categoria categoria = categoriaRepository.findById(categoriaId)
+                    .orElseThrow(() -> new ResponseStatusException(BAD_REQUEST, "Categoria no encontrada"));
+            ticket.setCategoria(categoria);
         }
 
         String prioridadStr = (String) payload.get("prioridad");
@@ -124,6 +134,11 @@ public class TicketController {
         }
 
         return ticketService.derivarTicket(id, grupoId, tecnicoId, actorId);
+    }
+
+    @PutMapping("/{id}/clasificacion")
+    public TicketDTO actualizarClasificacion(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        return ticketService.actualizarClasificacion(id, payload);
     }
 
     @GetMapping("/{id}/historial")

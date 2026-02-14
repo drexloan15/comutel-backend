@@ -6,12 +6,15 @@ import com.comutel.backend.model.*;
 import com.comutel.backend.repository.*;
 import com.comutel.backend.workflow.integration.TicketWorkflowBridge;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -33,6 +36,9 @@ public class TicketService {
 
     @Autowired
     private ComentarioRepository comentarioRepository;
+
+    @Autowired
+    private CategoriaRepository categoriaRepository;
 
     @Autowired
     private EmailSenderService emailSenderService;
@@ -59,11 +65,15 @@ public class TicketService {
         ticket.setUsuario(usuario);
         ticket.setEstado(Ticket.Estado.NUEVO);
         ticket.setTecnico(null);
+        if (ticket.getCategoria() != null && (ticket.getProcessType() == null || ticket.getProcessType().isBlank())) {
+            ticket.setProcessType(ticket.getCategoria().getProcessType());
+        }
         if (ticket.getProcessType() == null || ticket.getProcessType().isBlank()) {
             ticket.setProcessType(TicketWorkflowBridge.DEFAULT_PROCESS_TYPE);
         }
+        ticket.setProcessType(normalizeProcessType(ticket.getProcessType()));
         if (ticket.getWorkflowKey() == null || ticket.getWorkflowKey().isBlank()) {
-            ticket.setWorkflowKey(TicketWorkflowBridge.DEFAULT_WORKFLOW_KEY);
+            ticket.setWorkflowKey(defaultWorkflowKeyForProcessType(ticket.getProcessType()));
         }
 
         if (ticket.getPrioridad() == null) {
@@ -178,6 +188,53 @@ public class TicketService {
         registrarHistorial(ticketGuardado, actor, "REASIGNACION", detalle);
 
         return convertirADTO(ticketGuardado);
+    }
+
+    @Transactional
+    public TicketDTO actualizarClasificacion(Long ticketId, Map<String, Object> payload) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Ticket no encontrado"));
+
+        String processType = normalizeNullableString(payload.get("processType"));
+        if (payload.containsKey("processType")) {
+            ticket.setProcessType(processType == null ? null : normalizeProcessType(processType));
+            if (ticket.getWorkflowKey() == null || ticket.getWorkflowKey().isBlank()) {
+                ticket.setWorkflowKey(defaultWorkflowKeyForProcessType(ticket.getProcessType()));
+            }
+        }
+
+        Categoria categoria = ticket.getCategoria();
+        if (payload.containsKey("categoriaId")) {
+            Long categoriaId = parseOptionalLong(payload.get("categoriaId"), "categoriaId");
+            categoria = categoriaId == null ? null : categoriaRepository.findById(categoriaId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Categoria no encontrada"));
+            ticket.setCategoria(categoria);
+            if (categoria != null && (ticket.getProcessType() == null || ticket.getProcessType().isBlank()) && categoria.getProcessType() != null) {
+                ticket.setProcessType(normalizeProcessType(categoria.getProcessType()));
+            }
+        }
+
+        Long actorId = parseOptionalLong(payload.get("actorId"), "actorId");
+        Ticket saved = ticketRepository.save(ticket);
+
+        if (categoria != null && categoria.getGrupoDefault() != null) {
+            Map<String, Object> eventPayload = new HashMap<>();
+            eventPayload.put("grupoId", categoria.getGrupoDefault().getId());
+            try {
+                saved = ticketWorkflowBridge.fireEvent(saved, "ESCALATE", actorId, eventPayload);
+            } catch (RuntimeException ex) {
+                saved.setGrupoAsignado(categoria.getGrupoDefault());
+                saved.setTecnico(null);
+                saved = ticketRepository.save(saved);
+            }
+        }
+
+        Usuario actor = actorId == null ? null : usuarioRepository.findById(actorId).orElse(null);
+        if (actor != null) {
+            registrarHistorial(saved, actor, "CLASIFICACION", "Clasificacion actualizada para ticket.");
+        }
+
+        return convertirADTO(saved);
     }
 
     @Transactional
@@ -308,6 +365,7 @@ public class TicketService {
         dto.setPrioridad(ticket.getPrioridad() != null ? ticket.getPrioridad().toString() : "BAJA");
 
         if (ticket.getCategoria() != null) {
+            dto.setCategoriaId(ticket.getCategoria().getId());
             dto.setCategoria(ticket.getCategoria().getNombre());
         }
 
@@ -318,6 +376,7 @@ public class TicketService {
         dto.setWorkflowInstanceId(ticket.getWorkflowInstanceId());
         dto.setWorkflowStateKey(ticket.getWorkflowStateKey());
         dto.setProcessType(ticket.getProcessType());
+        dto.setWorkflowKey(ticket.getWorkflowKey());
 
         dto.setFechaCreacion(ticket.getFechaCreacion() != null ? ticket.getFechaCreacion().toString() : null);
         dto.setFechaVencimiento(ticket.getFechaVencimiento() != null ? ticket.getFechaVencimiento().toString() : null);
@@ -427,6 +486,50 @@ public class TicketService {
         registrarHistorial(savedTicket, tecnico, "AUTO_ASIGNACION", "Tecnico se auto-asigno el ticket.");
 
         return convertirADTO(savedTicket);
+    }
+
+    private String defaultWorkflowKeyForProcessType(String processType) {
+        String normalized = normalizeProcessType(processType);
+        return switch (normalized) {
+            case "REQUERIMIENTO" -> "REQUEST_DEFAULT";
+            case "CAMBIO" -> "CHANGE_DEFAULT";
+            case "APROBACION" -> "APPROVAL_DEFAULT";
+            case "INCIDENCIA" -> "INCIDENT_DEFAULT";
+            default -> TicketWorkflowBridge.DEFAULT_WORKFLOW_KEY;
+        };
+    }
+
+    private String normalizeProcessType(String processType) {
+        if (processType == null || processType.isBlank()) {
+            return TicketWorkflowBridge.DEFAULT_PROCESS_TYPE;
+        }
+        return processType.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeNullableString(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = String.valueOf(raw).trim();
+        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
+            return null;
+        }
+        return value;
+    }
+
+    private Long parseOptionalLong(Object raw, String field) {
+        if (raw == null) {
+            return null;
+        }
+        String value = String.valueOf(raw).trim();
+        if (value.isBlank() || "null".equalsIgnoreCase(value)) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " invalido");
+        }
     }
 
     private void validarTecnicoParaGrupo(Ticket ticket, Usuario tecnico) {
